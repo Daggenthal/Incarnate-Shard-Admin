@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+<title>Incarnate Shard Admin</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="title">Incarnate Shard Admin</div>
+    <div class="appver"><span id="appVer" title="This app's version and the commit it runs"></span> <button id="btnAppUpdate" class="badgebtn hidden" title="Newer code on the remote: update and restart Shard Admin">Update Available</button></div>
+    <div class="target" title="Which shard this window shows and controls: this computer, or a machine from the Machines tab">
+      <span class="dot" id="targetDot"></span>
+      <select id="targetSel"></select>
+    </div>
+    <div class="sub" id="shardName">&nbsp;</div>
+  </div>
+  <div class="upcount" title="Servers that finished starting, out of the servers this shard runs">
+    <div class="upnum"><span id="upNum">0</span><span class="slash">/</span><span id="upTotal">0</span> <span class="uplabel" id="upLabel">shards up</span></div>
+    <div class="bar"><div class="fill" id="upFill"></div></div>
+    <div class="totals" id="totals">&nbsp;</div>
+  </div>
+  <div class="actions">
+    <div class="group">
+      <button id="btnStart" class="primary" title="SQL Server and the AuthServer, which every shard uses. Start a shard from the sidebar (double-click it, or right-click, Start).">Start Global</button>
+      <button id="btnStop" title="Every shard (Freedom and the others), the AuthServer, and SQL Server when Shard Admin starts it">Stop All</button>
+      <button id="btnRestartAll">Restart All</button>
+      <button id="btnRestartUpdated" title="Restart only the servers running an older build than the one on disk">Restart Updated <span class="badge hidden" id="updatedBadge">0</span></button>
+    </div>
+    <div class="group">
+      <button id="btnBuildChanged">Build Changed <span class="badge hidden" id="outdatedBadge">0</span></button>
+      <button id="btnBuildAll" title="Every server (build-native)">Build All</button>
+      <button id="btnBuildClient" title="The game client (build-mingw), then staged into build-mingw/dist">Build Client</button>
+    </div>
+    <div class="group">
+      <button id="btnBackup" title="Back up every game database to .local/backups">Back Up DB</button>
+      <button id="btnClient" title="tools/run-client.sh">Start Client</button>
+    </div>
+    <div class="theme" id="theme" title="Light or dark">
+      <button data-theme="system">Auto</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button>
+    </div>
+  </div>
+</header>
+
+<div class="notice hidden" id="connNotice"><span id="connText"></span> <button id="btnReconnect" class="link">Try Again</button> <button id="btnConnLog" class="link">Machine Log</button></div>
+<div class="notice hidden" id="pendingNotice">Settings changed since the shard started. <button id="btnApply" class="link">Restart All to Apply</button></div>
+<div class="notice busy hidden" id="busyNotice"></div>
+<div class="notice hidden" id="plannedNotice"><span id="plannedText"></span> <button id="btnCancelRestart" class="link">Cancel the Restart</button></div>
+
+<main>
+  <aside class="side">
+    <div class="sidehead" title="Shared by every shard on this machine">Global (every shard)</div>
+    <ul id="serverList" class="servers"></ul>
+    <div class="sidehead" title="Click the arrow next to a shard for its own servers, map servers and zones">Shards</div>
+    <ul id="shardList" class="servers"></ul>
+    <div class="hidden"><span id="mapCount"></span><ul id="extraList"></ul></div>
+    <div class="sidehead">Other logs</div>
+    <ul class="servers">
+      <li class="srv plain" data-log="*"><span class="dot none"></span><span class="nm">All Logs (Every Server, Live)</span></li>
+      <li class="srv plain" data-log="build"><span class="dot none"></span><span class="nm">Build</span></li>
+      <li class="srv plain" data-log="DBServer.prev"><span class="dot none"></span><span class="nm">Database Server, Previous Run</span></li>
+      <li class="srv plain" data-log="Launcher.prev"><span class="dot none"></span><span class="nm">Launcher, Previous Run</span></li>
+      <li class="srv plain hidden" data-log="machine" id="machineLogItem"><span class="dot none"></span><span class="nm">Machine (Copying, SSH, Setup)</span></li>
+    </ul>
+  </aside>
+
+  <section class="content">
+    <nav class="tabs">
+      <button data-tab="logs" class="on">Logs</button>
+      <button data-tab="alerts">Alerts <span class="badge hidden" id="alertBadge">0</span></button>
+      <button data-tab="activity">Activity</button>
+      <button data-tab="optimizations">Optimizations</button>
+      <button data-tab="settings">Settings</button>
+      <button data-tab="staff">Staff</button>
+      <button data-tab="messages">Admin Messages</button>
+      <button data-tab="chat">Chat</button>
+      <button data-tab="machines">Machines</button>
+      <button data-tab="tracker">Tracker <span class="badge hidden" id="testBadge">0</span></button>
+    </nav>
+
+    <div class="pane on" id="pane-logs">
+      <div class="loghead">
+        <div>
+          <div class="logname" id="logName">Database Server</div>
+          <div class="dim" id="logAbout"></div>
+        </div>
+        <div class="logtools">
+          <input id="logFilter" type="search" placeholder="Filter lines">
+          <label><input type="checkbox" id="logErrors"> Errors and warnings only</label>
+          <label><input type="checkbox" id="logFollow" checked> Follow</label>
+          <button id="btnRestartOne">Restart</button>
+          <button id="btnClearLog" title="Empties this view. The log file is kept as it is; only lines written from now on show here. Every build does this to the Build log">Clear</button>
+          <button id="btnCopyLog" title="The lines shown (with the filter, if there is one), to paste into a chat or an issue">Copy</button>
+          <button id="btnReveal">Show File</button>
+        </div>
+      </div>
+      <pre id="logView" class="log"></pre>
+    </div>
+
+    <div class="pane" id="pane-alerts">
+      <div class="panehead"><h2>Alerts</h2><button id="btnMemErrors" title="Every crash stack and AddressSanitizer report in the logs, the same bug once, with function names, copied to paste in a chat">Copy Crashes and Memory Errors</button> <button id="btnClearAlerts">Clear</button></div>
+      <p class="dim" id="memNote"></p>
+      <p class="dim">Crashes, failed starts, database errors and servers that stopped. Click one to open its log. Desktop notifications can be turned off in Settings.</p>
+      <ul id="alertList" class="alerts"></ul>
+    </div>
+
+    <div class="pane" id="pane-activity">
+      <div class="panehead"><h2>Activity</h2></div>
+      <ul id="activityList" class="activity"></ul>
+    </div>
+
+    <div class="pane" id="pane-optimizations">
+      <div class="panehead"><h2>Optimizations and Switches</h2></div>
+      <p class="dim">Server switches apply when the shard starts. "Running with" is what the shard that's up right now started with.</p>
+      <div id="toggleList" class="cards"></div>
+      <h3>Client (In the Game)</h3>
+      <p class="dim">These live in the client and are switched with chat commands.</p>
+      <table class="grid" id="clientOpts"><thead><tr><th>Optimization</th><th>Command</th><th>What it does</th></tr></thead><tbody></tbody></table>
+    </div>
+
+    <div class="pane" id="pane-settings">
+      <div class="software" id="softwareBox">
+        <h3>Software</h3>
+        <div class="row"><span>Software Version: <b id="swVersion">...</b></span>
+          <button id="btnSwCheck">Check for Updates</button><button id="btnSwUpdate" class="primary hidden">Update Available</button>
+          <label class="inline"><input type="checkbox" id="swAuto"> Automatically check for updates (at launch)</label></div>
+        <p class="dim" id="swStatus"></p>
+        <ul id="swNew" class="xsevents"></ul>
+      </div>
+      <div class="panehead"><h2>Shard Configuration</h2><button id="btnSaveCfg" class="primary">Save</button></div>
+      <p class="dim">From <code>src/bin/data/server/db/servers.cfg</code>. The servers read it when they start: restart all after saving.</p>
+      <form id="cfgForm" class="form"></form>
+      <h3>Network: Playing from Other Computers</h3>
+      <div id="netBox" class="netbox"></div>
+      <h3>Store Items for Every Account (Account Server)</h3>
+      <p class="dim">From <code>account_server.cfg</code>. Applied at each login; restart the AccountServer after changing it.</p>
+      <form id="grantForm" class="form row">
+        <label><input type="radio" name="grants" value="all"> Everything in the store: every archetype, power set and costume piece</label>
+        <label><input type="radio" name="grants" value="list"> Only the list in <code>default_sku.cfg</code> (the shipped setting)</label>
+        <label><input type="radio" name="grants" value="none"> Nothing</label>
+      </form>
+      <h3>Databases: Moving Another Server Here</h3>
+      <p class="dim">Full backups (.bak) of another I24-based server's databases: <code>tools/db-export.sql</code> makes them there, with exact row counts. Check first: it restores copies under other names, checks them (backup checksums, CHECKDB, the tables and columns these servers use, row counts) and changes nothing. The import backs up this shard's databases first and keeps them as <code>&lt;name&gt;_before_&lt;stamp&gt;</code>; nothing that held data is dropped. Every step: <code>docs/DB_IMPORT.md</code>.</p>
+      <form id="importForm" class="form row">
+        <label>Folder <input name="dir" placeholder="the folder with the .bak files" readonly></label>
+        <button type="button" id="btnPickImport">Choose...</button>
+        <label>Other names <input name="map" placeholder="CohDB_Live=cohdb"></label>
+        <label><input type="checkbox" name="quick"> Skip CHECKDB (very large databases)</label>
+        <label><input type="checkbox" name="force"> Import even with missing tables or columns</label>
+        <label><input type="checkbox" name="stopShard" checked> Stop the shard for the import, start it again after</label>
+        <button type="button" id="btnImportCheck">Check (Changes Nothing)</button>
+        <button type="button" id="btnImport" class="danger">Import</button>
+      </form>
+      <form id="rollbackForm" class="form row">
+        <label>Undo an import <input name="stamp" placeholder="20261030153000 (its folder in .local/imports)" pattern="\d{14}"></label>
+        <button type="submit">Undo</button>
+      </form>
+      <h3>Server List (What the Client Shows)</h3>
+      <p class="dim"><code>src/bin/ServerListConfig.txt</code></p>
+      <form id="listForm" class="form row">
+        <label>Name <input name="name"></label>
+        <label>IP <input name="ip"></label>
+        <button type="submit">Save</button>
+      </form>
+      <h3>This App</h3>
+      <form id="appForm" class="form">
+        <label><input type="checkbox" name="startSql"> Start SQL Server with the shard (tools/db-up.sh)</label>
+        <label><input type="checkbox" name="notify"> Desktop notifications for alerts</label>
+        <label><input type="checkbox" name="autoRestart"> Restart the Database Server, the Launcher or the AuthServer when one crashes (3 times in 10 minutes at most, then it stays down and alerts)</label>
+        <label>Build folder <input name="buildDir" placeholder="build-native"></label>
+      </form>
+    </div>
+
+    <div class="pane" id="pane-tracker">
+      <div class="panehead"><h2>Tracker</h2><button id="btnReloadTracker">Reload</button></div>
+      <p class="dim">Things to test live in <code>docs/TESTING.md</code>; ticking one here saves it there. What's left to build is the To Do list in <code>docs/CHANGES.md</code>. Both are in the repo, so they stay current as the work lands.</p>
+      <details class="track" id="trackTests" open>
+        <summary>Things to test <span class="dim" id="testCount"></span></summary>
+        <ul class="checks" id="testList"></ul>
+        <details class="track sub" id="trackTestsDone">
+          <summary>Tested <span class="dim" id="testDoneCount"></span></summary>
+          <ul class="checks" id="testDoneList"></ul>
+        </details>
+      </details>
+      <details class="track" id="trackTodo" open>
+        <summary>To do <span class="dim" id="todoCount"></span></summary>
+        <ol class="todo" id="todoList"></ol>
+      </details>
+    </div>
+
+    <div class="pane" id="pane-machines">
+      <div class="panehead"><h2>Machines</h2><button id="btnAddMachine" class="primary">Add a Machine</button></div>
+      <p class="dim">Run the shard on another computer (a Steam Machine, a Linux PC or server on your network) and control it from this window. Pick it at the top. The source stays here: starting, building and saving settings copy it over first (<code>tools/remote-shard.sh</code>, over ssh). Nothing new listens on the network: this window reaches the machine through ssh.</p>
+      <div id="hostPanel" class="hostpanel"></div>
+      <ul id="machineList" class="machines"></ul>
+
+      <form id="machineForm" class="form hidden">
+        <h3 id="machineFormTitle">Add a Machine</h3>
+        <input type="hidden" name="id">
+        <fieldset><legend>Connection</legend>
+          <label>Name <input name="name" placeholder="Steam Machine"><span class="hint dim">what the picker shows</span></label>
+          <label>SSH <input name="ssh" placeholder="deck@192.168.1.50" required><span class="hint dim">user@address (or host name) of the machine</span></label>
+          <label>SSH port <input name="port" placeholder="22"><span class="hint dim">usually 22</span></label>
+        </fieldset>
+        <fieldset><legend>Shard</legend>
+          <label>Address players use <input name="ip" placeholder="the SSH address"><span class="hint dim">AdvertisedIp there: the IPv4 address game clients connect to. Empty: the SSH address. A public address here for players outside your network (forward the ports first: docs/REMOTE_SHARD.md).</span></label>
+          <label>Staff logins from <input name="staffFrom" placeholder="auto"><span class="hint dim">With fake auth, who gets the staff levels (StaffAccount): <b>auto</b> this computer only, <b>none</b>, or addresses and networks, like 192.168.1.0/24</span></label>
+          <label>Folder there <input name="dir" placeholder="Incarnate"><span class="hint dim">under the home folder</span></label>
+          <label>Container <input name="box" placeholder="incarnate"><span class="hint dim">the distrobox it builds and runs in (SteamOS). <b>none</b>: straight on the machine (a Linux with the packages; docs/REMOTE_SHARD.md)</span></label>
+        </fieldset>
+        <div class="row"><button type="submit" class="primary">Save</button> <button type="button" id="btnCancelMachine">Cancel</button> <span class="dim" id="machineFormNote"></span></div>
+      </form>
+
+      <div id="machineSteps" class="hidden">
+        <h3>On <span id="stepsName"></span></h3>
+        <p class="dim">In order, the first time: an ssh key (once, so no password is asked), set up, copy the game data, then Start shard at the top. Output goes to the Machine log.</p>
+        <div class="steps">
+          <button data-term="key" title="tools/remote-shard.sh key: asks the machine's password once, in a terminal">1. SSH Key</button>
+          <button data-step="setup" title="The build container and its packages (a few minutes the first time)">2. Set Up</button>
+          <button data-step="data" title="Piggs and beacons from this computer (large the first time)">3. Copy Game Data</button>
+          <button data-step="copy-db" title="This computer's databases (characters, accounts) over the machine's. Stops the shard there.">Copy Databases There</button>
+          <button data-step="test" title="ssh, the container, and the servers that are up">Test</button>
+          <button data-step="connect">Reconnect</button>
+          <button data-step="mem" title="Memory per server there (RSS, PSS, private)">Memory</button>
+          <button data-step="logs" title="Copies the machine's logs to .local/remote/">Copy Logs Here</button>
+          <button data-term="shell" title="A shell in the container there, in a terminal">Shell</button>
+          <button data-term="crash" title="The stack of the last map server crash (asks for sudo there)">Last Crash</button>
+        </div>
+        <pre id="termCmd" class="cmd hidden"></pre>
+        <div id="stepBox" class="stepbox hidden">
+          <div class="stephead"><b id="stepTitle"></b> <span id="stepState" class="dim"></span>
+            <span class="tools"><button id="btnStepCopy" class="link">Copy</button> <button id="btnStepLog" class="link">Machine Log</button> <button id="btnStepClose" class="link">Close</button></span></div>
+          <pre id="stepOut" class="log steplog"></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-xshard">
+      <div class="panehead"><h2 id="xsTitle">Shard</h2><span class="dim" id="xsSub"></span>
+        <span class="xsbtns"><button id="btnXsStart" class="primary">Start</button><label class="inline hidden" id="xsAtlasBox"><input type="checkbox" id="xsAtlas"> with Atlas Park</label>
+        <button id="btnXsRestart">Restart Shard</button><button id="btnXsStop" class="danger">Stop</button><button id="btnXsAllLogs" title="The container's own output, then the last lines of every server's log, live">All Its Logs</button><button id="btnXsCrashLogs" title="Copies every crash report of this shard, in full">Crash Logs</button></span></div>
+      <p class="dim">One of the other shards on this machine, in its own container (<code>docs/SHARDS.md</code>): its own Database Server, Launcher, map servers and services, sharing SQL Server and the AuthServer with this one. Restart shard saves, stops and starts all of it. A Database Server or Launcher that crashes starts again by itself; so does the container.</p>
+      <div class="subtabs" data-subtabs="xshard"><button data-sub="services" class="on">Services</button><button data-sub="crashes">Crash Reports <span class="badge hidden" id="xsCrashBadge"></span></button></div>
+      <div class="subpane on" data-subpane="xshard:services">
+      <div id="xsInfo" class="shardstats"></div>
+      <div class="xsgrid">
+        <div><h4>Local: Its Own Servers</h4><table class="xsservers" id="xsServers"></table>
+          <h4>Map Servers</h4><table class="xsservers" id="xsMaps"></table>
+          <h4>Global: Shared with Every Shard</h4><table class="xsservers" id="xsGlobal"></table></div>
+        <div><h4>What Happened</h4><ul id="xsEvents" class="xsevents"></ul></div>
+      </div>
+      </div>
+      <div class="subpane" data-subpane="xshard:crashes">
+        <p class="dim">A report for each crash: the stack of every thread, written by the debugger the moment it happened (<code>logs/crashes/</code> in the shard's folder). Click one to read it.</p>
+        <div class="copyrow"><button id="btnXsCopyCrashes">Copy Crash Reports</button><p class="dim">Every report in full, for pasting into a chat or an issue.</p></div>
+        <ul id="xsCrashes" class="xsevents"></ul>
+      </div>
+      <div id="xsLogBox" class="hidden"><div class="xsloghead"><h4 id="xsLogTitle"></h4><label class="inline"><input type="checkbox" id="xsLogLive" checked> live</label><button class="link" id="btnXsLogCopy">Copy</button><button class="link" id="btnXsLogClose">Close</button></div><pre id="xsLog" class="log steplog"></pre></div>
+    </div>
+
+    <div class="pane" id="pane-shard">
+      <div class="panehead"><h2 id="shardTitle">Shard</h2><span class="dim" id="shardSummary"></span>
+        <span class="xsbtns"><button id="btnSvcStart" class="primary">Start</button><button id="btnSvcRestart">Restart Shard</button><button id="btnSvcStop" class="danger">Stop</button></span></div>
+      <div class="subtabs" data-subtabs="shard"><button data-sub="services" class="on">Services</button><button data-sub="zones">Zones and Players</button></div>
+      <div class="subpane on" data-subpane="shard:services">
+        <div id="svcProgress" class="svcprogress hidden"><div class="svchead"><b id="svcDoing"></b><span id="svcCount" class="dim"></span></div><div class="bar"><div class="fill" id="svcFill"></div></div><div id="svcLast" class="dim"></div></div>
+        <div id="svcInfo" class="shardstats"></div>
+        <div class="xsgrid">
+          <div><h4>Local: Its Own Servers</h4><table class="xsservers" id="svcServers"></table>
+            <h4>Map Servers</h4><table class="xsservers" id="svcMaps"></table>
+            <h4>Global: Shared with Every Shard</h4><table class="xsservers" id="svcGlobal"></table></div>
+          <div><h4>What Happened</h4><ul id="svcEvents" class="xsevents"></ul></div>
+        </div>
+      </div>
+      <div class="subpane" data-subpane="shard:zones">
+      <div class="panehead sub"><button id="btnShardRefresh">Refresh</button></div>
+      <p class="dim">The zones and instances that are running, and who is on each. Click a player for what you can do. Every action runs as them, on their map, through the Database Server. Bring and Spectate Player use the staff character you log in with here. Bring needs it in the game; Spectate Player starts the game as it when it isn't. Updates every 5 seconds while open.</p>
+      <div id="staffBox" class="staffbox"></div>
+      <div id="shardStats" class="shardstats"></div>
+      <div class="shardview">
+        <div class="maptree"><input id="shardFilter" type="search" placeholder="Find a player, account or zone"><div id="entsView" class="hidden"></div><ul id="shardMaps"></ul></div>
+        <div class="playercard" id="playerCard"><p class="dim">Click a player.</p></div>
+      </div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-chat">
+      <div class="panehead"><h2>Chat Admin</h2><span class="dim" id="chatStatus">Not logged in to chat</span>
+        <button id="btnChatLogin" class="primary">Log In to Chat</button><button id="btnChatLogout" class="hidden">Log Out of Chat</button></div>
+      <p class="dim">The original ChatAdmin tool, here: global channels and the players in them. Shard Admin is the chat user <b>ShardAdmin</b> (staff, made the first time; nobody can log in as it from the network). Join a channel to see what's said in it and moderate it. Logs out of chat by itself 90 seconds after this tab closes. Details: <code>docs/CHAT_ADMIN.md</code>.</p>
+      <div class="chatview">
+        <div class="chatcol">
+          <h4>Channels <span class="dim" id="chatChanCount"></span></h4>
+          <input id="chatChanFilter" type="search" placeholder="Find a channel">
+          <ul id="chatChannels" class="chatlist"></ul>
+          <form id="chatCreateForm" class="form row"><input name="name" maxlength="20" placeholder="New channel" autocomplete="off"><button type="submit">Create</button></form>
+          <h4>Everyone</h4>
+          <form id="chatAllForm" class="form"><input name="text" maxlength="250" placeholder="A message to every player in chat" autocomplete="off"><button type="submit">Send to All</button></form>
+          <div class="acts"><button id="btnChatSilenceAll" class="danger" title="CsrSilenceAll: nobody can talk in global chat">Silence All</button><button id="btnChatUnsilenceAll" title="CsrUnsilenceAll">Unsilence All</button></div>
+          <div class="acts"><button id="btnChatInvisible" title="ShardAdmin doesn't show in member lists">Go Invisible</button><button id="btnChatVisible">Go Visible</button></div>
+        </div>
+        <div class="chatcol wide">
+          <div id="chatChannelHead"><p class="dim">Pick a channel. Joined ones show what's said in them.</p></div>
+          <div id="chatLog" class="chatlog"></div>
+          <form id="chatSendForm" class="form row hidden"><input name="text" class="grow" maxlength="250" placeholder="Say something in the channel" autocomplete="off"><button type="submit" class="primary">Send</button></form>
+          <div id="chatMembers"></div>
+        </div>
+        <div class="chatcol">
+          <h4>Players in Chat <span class="dim" id="chatUserCount"></span></h4>
+          <input id="chatUserFilter" type="search" placeholder="Find a @handle">
+          <ul id="chatUsers" class="chatlist"></ul>
+          <form id="chatFindForm" class="form row"><input name="name" maxlength="32" placeholder="@handle (offline too)" autocomplete="off"><button type="submit">Look Up</button></form>
+          <div id="chatUserCard" class="playercard"><p class="dim">Click a player.</p></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-messages">
+      <div class="panehead"><h2>Send Admin Message</h2></div>
+      <p class="dim">Every player online sees these in chat, in red, in every chat tab (the game's admin messages). Restart all tells them first, then saves every map and sends them to the login screen with the message. Schedules run where the shard runs: on a machine they keep going with this window closed; on this computer, while this app is open. Details: <code>docs/BROADCAST.md</code>.</p>
+      <form id="msgForm" class="form row">
+        <label class="grow">Message <input name="text" maxlength="250" placeholder="Updates in 30 minutes: finish your missions" autocomplete="off"></label>
+        <button type="submit" class="primary">Send Now</button>
+      </form>
+      <h3>Scheduled</h3>
+      <table class="grid" id="schedTable"><thead><tr><th>What</th><th>Message</th><th>Next</th><th>Repeats</th><th>On</th><th></th></tr></thead><tbody></tbody></table>
+      <form id="schedForm" class="form row">
+        <input type="hidden" name="id">
+        <label>What <select name="kind"><option value="message">Message</option><option value="restart">Restart</option></select></label>
+        <label class="grow">Message <input name="text" maxlength="250" placeholder="for a restart: added to the warnings (optional)" autocomplete="off"></label>
+        <label>At <input name="at" type="datetime-local" required></label>
+        <label>Repeat <select name="repeat">
+          <option value="0">Once</option><option value="custom">Every ... minutes</option><option value="60">Every hour</option>
+          <option value="1440">Every day</option><option value="10080">Every week</option></select></label>
+        <label class="hidden" id="everyLabel">Minutes <input name="every" type="number" min="5" value="30"></label>
+        <label id="warnLabel" class="hidden">Warn before <select name="warn">
+          <option value="0">No warning</option><option value="1">1 minute</option><option value="5">5 minutes</option>
+          <option value="15" selected>15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option></select></label>
+        <button type="submit">Add</button> <button type="button" id="btnSchedCancel" class="hidden">Cancel</button>
+      </form>
+      <p class="dim">Times are this computer's clock. A schedule that came due while nothing was running is skipped, not sent late. A planned restart warns at 60, 30, 15, 10, 5, 3, 2 and 1 minutes (the ones inside its warning).</p>
+      <h3>Restart Message</h3>
+      <form id="restartMsgForm" class="form row">
+        <label class="grow">Players see <input name="text" maxlength="250"></label>
+        <button type="submit">Save</button>
+      </form>
+      <h3>Sent</h3>
+      <ul id="msgHistory" class="activity"></ul>
+    </div>
+
+    <div class="pane" id="pane-staff">
+      <div class="panehead"><h2>Staff</h2></div>
+      <p class="dim">Staff access needs both: the account on this list (servers.cfg <code>StaffAccount</code>, applied at each login) and a character raised to the level. The lower of the two counts. 11 is full control.</p>
+      <h3>Staff Accounts</h3>
+      <table class="grid" id="staffTable"><thead><tr><th>Account</th><th>Level</th><th></th></tr></thead><tbody></tbody></table>
+      <form id="staffForm" class="form row">
+        <label>Account <input name="account" placeholder="Test"></label>
+        <label>Level <input name="level" type="number" min="0" max="11" value="11"></label>
+        <button type="submit">Add or Change</button>
+      </form>
+      <h3>Accounts (Real Auth)</h3>
+      <p class="dim" id="acctNote">With fake auth off (Optimizations), players log in with an account and password from this list, through the AuthServer. Passwords are 6 to 16 characters (the game sends at most 16), and only their hash is kept. Staff levels still come from the list above. Same as <code>tools/auth-account.sh</code>.</p>
+      <table class="grid" id="acctTable"><thead><tr><th>Account</th><th>uid</th><th>Status</th><th>Last login</th><th></th></tr></thead><tbody></tbody></table>
+      <form id="acctForm" class="form row">
+        <label>Account <input name="account" placeholder="name" maxlength="14" autocomplete="off"></label>
+        <label>Password <input name="password" type="password" minlength="6" maxlength="16" autocomplete="new-password"></label>
+        <button type="submit">Make Account</button>
+      </form>
+      <h3>Characters</h3>
+      <form id="charForm" class="form row">
+        <label>Search <input name="search" type="search" placeholder="character or account name"></label>
+        <label>Access level at least
+          <select name="minLevel"><option value="11" selected>11</option><option value="9">9</option><option value="1">1</option><option value="0">any</option></select>
+        </label>
+        <button type="submit">Search</button>
+      </form>
+      <div class="dim" id="charNote"></div>
+      <table class="grid" id="charTable"><thead><tr><th>Character</th><th>Account</th><th>Level</th><th>Access</th><th>Account access</th><th>Last active</th><th></th></tr></thead><tbody></tbody></table>
+    </div>
+  </section>
+</main>
+
+<dialog id="restartDialog" class="dialog">
+  <form method="dialog" id="restartForm">
+    <h3>Restart the Whole Shard</h3>
+    <p class="dim" id="restartWho"></p>
+    <label>Warn players
+      <select name="warn">
+        <option value="0">No wait: restart now</option><option value="1">1 minute first</option><option value="5" selected>5 minutes first</option>
+        <option value="15">15 minutes first</option><option value="30">30 minutes first</option><option value="60">1 hour first</option>
+      </select></label>
+    <label>Message <input name="text" maxlength="250" placeholder="The server is restarting. It will be back in a few minutes."></label>
+    <div class="row end"><button value="cancel">Cancel</button> <button value="ok" class="primary" id="btnRestartGo">Restart</button></div>
+  </form>
+</dialog>
+
+<div id="toasts" class="toasts"></div>
+<div id="ctxMenu" class="ctxmenu hidden"></div>
+<script src="app.js"></script>
+</body>
+</html>

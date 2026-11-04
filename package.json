@@ -1,0 +1,16 @@
+{
+  "name": "incarnate-shard-admin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Incarnate Shard Admin: start, watch, build and configure the local City of Heroes shard",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "status": "node backend.js status",
+    "outdated": "node backend.js outdated"
+  },
+  "devDependencies": {
+    "electron": "44.8.0"
+  }
+}
